@@ -7,7 +7,7 @@ if __name__ == '__main__':
     # 计时开始
     tic = time()
     # 初始化
-    mcs = MCS(times=int(1e+4))
+    mcs = MCS(times=int(1e+2))
     # 运行蒙特卡洛模拟
     snowKick = mcs.run(mode='sim')
     # 计时结束

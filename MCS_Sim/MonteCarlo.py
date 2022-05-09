@@ -101,7 +101,7 @@ class MCS:
 
         self._Coefficient['n'] = len(trade_date_simulation)  # 历史价格时间长度
 
-        self._Coefficient['dt'] = 1 / (year * 252)  # 单位时间
+        self._Coefficient['dt'] = 1 / 252  # 单位时间
 
     def mcs(self, mode='cal'):
         """
@@ -165,8 +165,9 @@ class MCS:
         earning_504 = earning_0 * (1 + eg) ** year
         price_504 = pe_504 * earning_504  # 一个计算中间值
         # MU = (price_504 / STRAT_PRICE) ** (1 / (252 * year))
+        ##################################################
         MU = (price_504 / STRAT_PRICE) ** (1 / year)
-
+        ##################################################
         iter_params = (times, MU, dt, sigma_simulation, sqrt_dt, STRAT_PRICE, price_504, year)
 
         return iter_params
@@ -179,7 +180,8 @@ class MCS:
         h_sigma_sqr = sigma_simulation**2 / 2
         sqrt252 = np.sqrt(252)
         days = year * 252
-        while 1:
+        while True:
+            price_pre = 1
             mu_simulation = MU
             if times == 0:
                 break
@@ -188,12 +190,12 @@ class MCS:
             for day in lenth:
                 # FLAG 为True表示一次合格的模拟
                 FLAG = 0
-                while 1:
-                    pn = np.exp((mu_simulation - h_sigma_sqr) * dt + sigma_simulation * sqrt_dt * np.random.normal(0, 1)) * price_start
+                while True:
+                    pn = np.exp((mu_simulation - h_sigma_sqr) * dt + sigma_simulation * sqrt_dt * np.random.normal(0, 1)) * price_pre
                     pn_array_temp = np.append(pn_array, [pn], axis=0)
                     ##################### 设置合格条件 ##################
-                    # if self.sigma_flag(MinMax=(0, 10000), lenth=20, pn_array=pn_array_temp):
-                    if 1==1:
+                    if self.sigma_flag(MinMax=(0, 10000), lenth=20, pn_array=pn_array_temp):
+                    # if 1==1:
                         FLAG = 1
                     ####################################################
                     if FLAG:
@@ -203,9 +205,9 @@ class MCS:
                         break
                     del pn_array_temp
                 ###################### 设置滚动参数 #####################
-                mu_simulation = (price_504 / pn) ** (days / (days - day))
+                mu_simulation = (price_504 / pn) ** (252 / (days - day))
 
-                price_start = pn
+                price_pre = pn
                 ########################################################
 
             pn_mat.append(deepcopy(pn_array))
