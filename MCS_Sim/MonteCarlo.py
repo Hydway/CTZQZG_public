@@ -101,7 +101,7 @@ class MCS:
 
         self._Coefficient['n'] = len(trade_date_simulation)  # 历史价格时间长度
 
-        self._Coefficient['dt'] = 1 / len(trade_date_simulation)  # 单位时间
+        self._Coefficient['dt'] = 1 / (year * 252)  # 单位时间
 
     def mcs(self, mode='cal'):
         """
@@ -137,10 +137,10 @@ class MCS:
         STRAT_PRICE = self._DataDict['close_simulation'].iloc[-1]
         times = self._ParamDict['times']
         year = self._ParamDict['year']
-        sentiment = self._ParamDict['sentiment']
+        # sentiment = self._ParamDict['sentiment']
         dt = self._Coefficient['dt']
         sqrt_dt = np.sqrt(dt)
-        pe_simulation = self._DataDict['pe_simulation']
+        # pe_simulation = self._DataDict['pe_simulation']
         pe_0 = self._Coefficient['pe_0']
 
         if mode == 'cal':
@@ -164,7 +164,8 @@ class MCS:
         earning_0 = STRAT_PRICE / pe_0
         earning_504 = earning_0 * (1 + eg) ** year
         price_504 = pe_504 * earning_504  # 一个计算中间值
-        MU = (price_504 / STRAT_PRICE) ** (1 / (252 * year))
+        # MU = (price_504 / STRAT_PRICE) ** (1 / (252 * year))
+        MU = (price_504 / STRAT_PRICE) ** (1 / year)
 
         iter_params = (times, MU, dt, sigma_simulation, sqrt_dt, STRAT_PRICE, price_504, year)
 
@@ -175,20 +176,24 @@ class MCS:
         # price_start = 1
         pn_mat = deque()
         lenth = range(1, year * 12 * 21)
-        while True:
+        h_sigma_sqr = sigma_simulation**2 / 2
+        sqrt252 = np.sqrt(252)
+        days = year * 252
+        while 1:
             mu_simulation = MU
             if times == 0:
                 break
             pn_array = np.array([])
             #             每次模拟
-            for days in lenth:
+            for day in lenth:
                 # FLAG 为True表示一次合格的模拟
                 FLAG = 0
-                while True:
-                    pn = np.exp(mu_simulation * dt + sigma_simulation * sqrt_dt * np.random.normal(0, 1)) * price_start
+                while 1:
+                    pn = np.exp((mu_simulation - h_sigma_sqr) * dt + sigma_simulation * sqrt_dt * np.random.normal(0, 1)) * price_start
                     pn_array_temp = np.append(pn_array, [pn], axis=0)
                     ##################### 设置合格条件 ##################
-                    if self.sigma_flag(MinMax=(0, 10000), lenth=20, pn_array=pn_array_temp):
+                    # if self.sigma_flag(MinMax=(0, 10000), lenth=20, pn_array=pn_array_temp):
+                    if 1==1:
                         FLAG = 1
                     ####################################################
                     if FLAG:
@@ -198,7 +203,7 @@ class MCS:
                         break
                     del pn_array_temp
                 ###################### 设置滚动参数 #####################
-                mu_simulation = (price_504 / pn) ** (1 / (252 * year - days)) - 1
+                mu_simulation = (price_504 / pn) ** (days / (days - day))
 
                 price_start = pn
                 ########################################################
