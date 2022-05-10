@@ -101,7 +101,7 @@ class MCS:
 
         self._Coefficient['n'] = len(trade_date_simulation)  # 历史价格时间长度
 
-        self._Coefficient['dt'] = 1 / 252  # 单位时间
+        self._Coefficient['dt'] = 1 / (252 * year)  # 单位时间
 
     def mcs(self, mode='cal'):
         """
@@ -166,7 +166,7 @@ class MCS:
         price_504 = pe_504 * earning_504  # 一个计算中间值
         # MU = (price_504 / STRAT_PRICE) ** (1 / (252 * year))
         ##################################################
-        MU = (price_504 / STRAT_PRICE) ** (1 / year)
+        MU = (price_504 / STRAT_PRICE) ** (1 / (252 * year)) - 1
         ##################################################
         iter_params = (times, MU, dt, sigma_simulation, sqrt_dt, STRAT_PRICE, price_504, year)
 
@@ -181,31 +181,31 @@ class MCS:
         sqrt252 = np.sqrt(252)
         days = year * 252
         while True:
-            price_pre = 1
+            price_pre = price_start
             mu_simulation = MU
             if times == 0:
                 break
-            pn_array = np.array([])
+            pn_array = []
             #             每次模拟
             for day in lenth:
                 # FLAG 为True表示一次合格的模拟
                 FLAG = 0
                 while True:
                     pn = np.exp((mu_simulation - h_sigma_sqr) * dt + sigma_simulation * sqrt_dt * np.random.normal(0, 1)) * price_pre
-                    pn_array_temp = np.append(pn_array, [pn], axis=0)
+                    pn_array_temp = pn_array + [pn]
                     ##################### 设置合格条件 ##################
                     if self.sigma_flag(MinMax=(0, 10000), lenth=20, pn_array=pn_array_temp):
                     # if 1==1:
                         FLAG = 1
                     ####################################################
                     if FLAG:
-                        pn_array = np.append(pn_array, [pn], axis=0)
+                        pn_array.append(pn)
                         del pn_array_temp
                         # 出口
                         break
                     del pn_array_temp
                 ###################### 设置滚动参数 #####################
-                mu_simulation = (price_504 / pn) ** (252 / (days - day))
+                mu_simulation = (price_504 / pn) ** (252 / (days - day)) - 1
 
                 price_pre = pn
                 ########################################################
@@ -245,8 +245,8 @@ class MCS:
             res = q.get()
             for pn_array in res[1]:
                 pn_slice = pn_array[s]
-                p_max = pn_slice.max()
-                p_min = pn_array.min()
+                p_max = max(pn_slice)
+                p_min = min(pn_array)
 
                 #         敲入敲出条件
                 if p_max >= KO_ratio * price_start:
@@ -265,7 +265,7 @@ class MCS:
 
         return pd.DataFrame(snowKickDict)
 
-    def sigma_flag(self, MinMax: tuple, lenth: int, pn_array: np.array):
+    def sigma_flag(self, MinMax: tuple, lenth: int, pn_array: list):
         if len(pn_array) - lenth - 1 >= 0:
             close = pn_array[len(pn_array) - lenth - 1:]
         else:
