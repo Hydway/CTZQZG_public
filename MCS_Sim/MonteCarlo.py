@@ -4,7 +4,8 @@ from numpy import random
 import os
 from collections import deque
 from queue import Queue
-from copy import deepcopy
+from numba.experimental import jitclass
+from numba import njit
 from concurrent.futures import ProcessPoolExecutor
 
 
@@ -15,7 +16,7 @@ class MCS:
     #     @author: cxy
 
     # private:
-    def __init__(self, times=int(1e+3)):
+    def __init__(self, times=int(1e+3), mode='sim', type='ETF', year=2):
         #     存储数据文件信息
         self._DataDict = {
             'trade_date': None,
@@ -24,6 +25,7 @@ class MCS:
             'pe': None,
             'close_simulation': None,
             'pe_simulation': None,
+            'future_price' : None,
         }
 
         #     存储结果信息
@@ -37,14 +39,16 @@ class MCS:
             'knock_out': 0,
             'knock_reverse': 0,  # 没用到
             'knock_stable': 0,
-            'vol': deque()
+            # 'vol': deque()
         }
         #     设置参数信息
         self._ParamDict = {
             'times': times,  # 模拟次数：1e+5 10万次模拟
+            'mode' : mode,
+            'type' : type,
             'start': 3730,
             'length': 1,  # 模拟的天数  没用到
-            'year': 2,  # 雪球结构时长
+            'year': year,  # 雪球结构时长
             'KO_ratio': 1,  # 敲出系数
             'KI_ratio': 0.8,  # 敲入系数
             'sentiment': 18,
@@ -63,7 +67,6 @@ class MCS:
         }
 
     # pbulic:
-
     def loadData(self, ):
         """
         加载数据函数 数据文件需要与该脚本在同一路径下
@@ -91,23 +94,25 @@ class MCS:
         pe = self._DataDict['pe']
         year = self._ParamDict['year']
 
-        trade_date_simulation = trade_date[start - 252 * year - 1: start]
-
-        close_simulation = close[start - 252 * year - 1: start]
+        # trade_date_simulation = trade_date[start - 252 * year - 1: start]
+        #
+        close_simulation = close[int(start - 252 * year - 1): start]
         self._DataDict['close_simulation'] = close_simulation
+        #
+        # pe_simulation = pe[start - 252 * year - 1: start]
+        # self._DataDict['pe_simulation'] = pe_simulation
 
-        pe_simulation = pe[start - 252 * year - 1: start]
-        self._DataDict['pe_simulation'] = pe_simulation
-
-        self._Coefficient['n'] = len(trade_date_simulation)  # 历史价格时间长度
+        # self._Coefficient['n'] = len(trade_date_simulation)  # 历史价格时间长度
 
         self._Coefficient['dt'] = 1 / (252 * year)  # 单位时间
 
-    def mcs(self, mode='cal'):
+    def mcs(self):
         """
         蒙特卡洛模拟主循环
         :return:
         """
+        mode = self._ParamDict['mode']
+        year = self._ParamDict['year']
         if mode == 'cal':
             args = (0, 0, 0)
             iter_params = [self.mcs_init(*args, mode=mode)]
@@ -119,6 +124,8 @@ class MCS:
                                                  for eg in eg_List \
                                                  for sigma_simulation in sigma_List]
             iter_params = [(self.mcs_init(*arg, mode=mode), arg) for arg in args]
+            # for item in iter_params:
+            #     print(((round(item[0][-2],6), round(item[0][-1],6)), item[1]))
         else:
             pass
 
@@ -133,15 +140,15 @@ class MCS:
 
     def mcs_init(self, pe_504_, eg_, sigma_simulation_, mode='cal'):
         # 读取设置参数
-
+        type = self._ParamDict['type']
         STRAT_PRICE = self._DataDict['close_simulation'].iloc[-1]
+        future_price = STRAT_PRICE * (1 - 0.053)
         times = self._ParamDict['times']
         year = self._ParamDict['year']
-        # sentiment = self._ParamDict['sentiment']
         dt = self._Coefficient['dt']
         sqrt_dt = np.sqrt(dt)
-        # pe_simulation = self._DataDict['pe_simulation']
         pe_0 = self._Coefficient['pe_0']
+        _delta = 0
 
         if mode == 'cal':
             sigma_simulation = self._Coefficient['sigma_simulation']
@@ -149,71 +156,40 @@ class MCS:
         elif mode == 'sim':
             pe_504, eg, sigma_simulation = pe_504_, eg_, sigma_simulation_
 
-        #         初始化random矩阵增加cache命中率
-        #         random_mat = np.array([np.random.normal(0, 1, year * 252) for _ in range(times)])
-
-        # if sentiment > 3:
-        #     pe_504 = sentiment
-        # elif sentiment > 2:
-        #     pe_504 = np.quantile(pe_simulation, 0.05, axis=0)
-        # elif sentiment > 1:
-        #     pe_504 = np.quantile(pe_simulation, 0.1, axis=0)
-        # else:
-        #     pe_504 = np.quantile(pe_simulation, 0.25, axis=0)
-
         earning_0 = STRAT_PRICE / pe_0
         earning_504 = earning_0 * (1 + eg) ** year
         price_504 = pe_504 * earning_504  # 一个计算中间值
-        # MU = (price_504 / STRAT_PRICE) ** (1 / (252 * year))
         ##################################################
-        MU = (price_504 / STRAT_PRICE) ** (1 / (252 * year)) - 1
+        if type == 'ETF':
+            MU = (price_504 / STRAT_PRICE) ** (252 / (252 * year)) - 1
+        elif type == 'future':
+            abr = ((STRAT_PRICE - future_price) / STRAT_PRICE ) ** (1 / year)
+            pg = (price_504 - STRAT_PRICE) / STRAT_PRICE
+            MU = pg - abr + _delta
         ##################################################
         iter_params = (times, MU, dt, sigma_simulation, sqrt_dt, STRAT_PRICE, price_504, year)
 
         return iter_params
 
-    def mcs_iter(self, *args):
-        times, MU, dt, sigma_simulation, sqrt_dt, price_start, price_504, year = args[0][0]
+    def mcs_iter(self, args):
         # price_start = 1
-        pn_mat = deque()
-        lenth = range(1, year * 12 * 21)
-        h_sigma_sqr = sigma_simulation**2 / 2
-        sqrt252 = np.sqrt(252)
-        days = year * 252
-        while True:
-            price_pre = price_start
-            mu_simulation = MU
-            if times == 0:
-                break
-            pn_array = []
-            #             每次模拟
-            for day in lenth:
-                # FLAG 为True表示一次合格的模拟
-                FLAG = 0
-                while True:
-                    pn = np.exp((mu_simulation - h_sigma_sqr) * dt + sigma_simulation * sqrt_dt * np.random.normal(0, 1)) * price_pre
-                    pn_array_temp = pn_array + [pn]
-                    ##################### 设置合格条件 ##################
-                    if self.sigma_flag(MinMax=(0, 10000), lenth=20, pn_array=pn_array_temp):
-                    # if 1==1:
-                        FLAG = 1
-                    ####################################################
-                    if FLAG:
-                        pn_array.append(pn)
-                        del pn_array_temp
-                        # 出口
-                        break
-                    del pn_array_temp
-                ###################### 设置滚动参数 #####################
-                mu_simulation = (price_504 / pn) ** (252 / (days - day)) - 1
+        times, MU, dt, sigma_simulation, sqrt_dt, price_start, price_504, year = args[0]
 
-                price_pre = pn
-                ########################################################
+        h_sigma_sqr = sigma_simulation ** 2 / 2
+        nudt = (MU - h_sigma_sqr) * dt
 
-            pn_mat.append(deepcopy(pn_array))
-            times -= 1
+        volsdt = sigma_simulation * sqrt_dt
+        lnS = np.log(price_start)
 
-        return pn_mat
+        days = int(year * 12 * 21) + 1
+        randomMarix = np.random.normal(size=(times, days))
+
+        delta_lnSt = nudt + volsdt * randomMarix
+        lnSt = lnS + np.cumsum(delta_lnSt, axis=1)
+        ST = np.exp(lnSt)
+        # print(ST[0])
+
+        return ST
 
     def snowKick(self, q):
         """
@@ -226,7 +202,7 @@ class MCS:
         KO_ratio = self._ParamDict['KO_ratio']
         KI_ratio = self._ParamDict['KI_ratio']
         price_start = self._DataDict['close'].iloc[-1]
-        s = slice(20, year * 252, 21)
+        s = slice(20, int(year * 252)+1, 21)
         snowKickDict = {
             #             '日期': [self._DataDict['trade_date'][self._ParamDict['start'] - 1]],
             #             '收盘价': [self._DataDict['close'][self._ParamDict['start'] - 1]],
@@ -284,20 +260,20 @@ class MCS:
         else:
             return False
 
-    def run(self, mode: str):
+    def run(self, ):
         """
         蒙特卡洛自动运行
         :return: 返回统计结果
         """
-        if mode not in ('cal', 'sim'):
-            print("Unexpected mode")
-            print("mode: 'cal' or 'sim'")
+        # if mode not in ('cal', 'sim'):
+        #     print("Unexpected mode")
+        #     print("mode: 'cal' or 'sim'")
 
         self.loadData()
 
         self.setData()
 
-        q = self.mcs(mode=mode)
+        q = self.mcs()
 
         snowKick = self.snowKick(q)
 
