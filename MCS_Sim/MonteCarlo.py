@@ -5,19 +5,23 @@ import os
 from collections import deque
 from queue import Queue
 from numba.experimental import jitclass
-from numba import njit
+from numba import njit, types, typed
 from concurrent.futures import ProcessPoolExecutor
 
 
 class MCS:
     #     Monte Carlo Simulation
     #     使用多进程加速
-    #     使用 Numba加速 - 未实现
+    #     使用 Numba - jitclass加速 - 未实现
     #     @author: cxy
 
     # private:
     def __init__(self, times=int(1e+3), mode='sim', type='ETF', year=2):
         #     存储数据文件信息
+        self.START = 978
+        # self.FROM  = self.START - 21 * 3
+        self.FROM = 0
+
         self._DataDict = {
             'trade_date': None,
             'open_price': None,
@@ -26,6 +30,10 @@ class MCS:
             'close_simulation': None,
             'pe_simulation': None,
             'future_price' : None,
+            'abr' : None,
+            'vol' : None,  # 60日年化波动率，数据来源：Wind
+            'vol_simulation' : None,
+            'sim_array' : None,
         }
 
         #     存储结果信息
@@ -34,10 +42,8 @@ class MCS:
             'set_up': None,
             'cl': None,
             'p_v': None,
-            'pt': [],  # 没用到
             'knock_in': 0,
             'knock_out': 0,
-            'knock_reverse': 0,  # 没用到
             'knock_stable': 0,
             # 'vol': deque()
         }
@@ -46,14 +52,11 @@ class MCS:
             'times': times,  # 模拟次数：1e+5 10万次模拟
             'mode' : mode,
             'type' : type,
-            'start': 3730,
+            'start': self.START,
             'length': 1,  # 模拟的天数  没用到
             'year': year,  # 雪球结构时长
-            'KO_ratio': 1,  # 敲出系数
+            'KO_ratio': 1.1,  # 敲出系数
             'KI_ratio': 0.8,  # 敲入系数
-            'sentiment': 18,
-            'simulation_type': 2,
-            'paramList': [],
         }
         #     设置计算量
         self._Coefficient = {
@@ -61,8 +64,8 @@ class MCS:
             'd': None,
             'n': None,
             'dt': None,
-            'sigma_simulation': 0.15,
-            'eg': 0.05,
+            'sigma_simulation': None,
+            'eg': [],
             'pe_0': 15,
         }
 
@@ -73,36 +76,50 @@ class MCS:
         数据文件名：Temp.xlsx
         :return: None
         """
-        filename = 'Temp.xlsx'
+        filename = 'data.xlsx'
         path = os.getcwd() + '\\' + filename
-        data = pd.read_excel(path)
+        data = pd.read_excel(path, 'Sheet4')
 
         #         设置 _DataDict
-        self._DataDict['trade_date'] = data['日期']
-        self._DataDict['close'] = data['收盘价(元)']
-        self._DataDict['open_price'] = data['开盘价(元)']
-        self._DataDict['pe'] = data['市盈率']
+        self._DataDict['trade_date'] = data['Date']
+
+        self._DataDict['close'] = data['close']
+
+        self._DataDict['abr'] = data['anal_basisannualyield']
+
+        self._DataDict['pe'] = data['val_pe_ttmwgt']
+
+        self._DataDict['vol'] = data['volatilityratio']
+
+        self._Coefficient['eg'] = data['eg']
 
     def setData(self, ):
         """
         数据初始化
         :return: None
         """
+        year_ = 1.5
+
+        self._ParamDict['start'] = self.START
+
         start = self._ParamDict['start']
-        trade_date = self._DataDict['trade_date']
+
         close = self._DataDict['close']
+
         pe = self._DataDict['pe']
+
         year = self._ParamDict['year']
 
-        # trade_date_simulation = trade_date[start - 252 * year - 1: start]
-        #
-        close_simulation = close[int(start - 252 * year - 1): start]
-        self._DataDict['close_simulation'] = close_simulation
-        #
-        # pe_simulation = pe[start - 252 * year - 1: start]
-        # self._DataDict['pe_simulation'] = pe_simulation
+        sim_lenth = int(year * 252) + 1
 
-        # self._Coefficient['n'] = len(trade_date_simulation)  # 历史价格时间长度
+        # self._DataDict['close_simulation'] = close[int(start - 252 * year_): start]
+        self._DataDict['close_simulation'] = close[int(start - 1): start]
+
+        self._DataDict['vol_simulation'] = self._DataDict['vol'][int(start - 1): start]
+
+        self._Coefficient['sigma_simulation'] = self._DataDict['vol_simulation'].iloc[-1] / 100
+
+        self._DataDict['sim_array']  = list(close[start : start + sim_lenth])
 
         self._Coefficient['dt'] = 1 / (252 * year)  # 单位时间
 
@@ -114,8 +131,9 @@ class MCS:
         mode = self._ParamDict['mode']
         year = self._ParamDict['year']
         if mode == 'cal':
-            args = (0, 0, 0)
-            iter_params = [self.mcs_init(*args, mode=mode)]
+            if self._ParamDict['type'] == 'future2':
+                args = (0, 0, 0)
+                iter_params = [(self.mcs_init(*args, mode=mode), args)]
         elif mode == 'sim':
             pe_504_List = [15, 20, 30]  #
             eg_List = [0.05, 0.07, 0.1]  # 
@@ -124,9 +142,7 @@ class MCS:
                                                  for eg in eg_List \
                                                  for sigma_simulation in sigma_List]
             iter_params = [(self.mcs_init(*arg, mode=mode), arg) for arg in args]
-            # for item in iter_params:
-            #     print(((round(item[0][-2],6), round(item[0][-1],6)), item[1]))
-        else:
+        elif mode == 'backTrade':
             pass
 
         q = Queue()
@@ -139,15 +155,16 @@ class MCS:
         return q
 
     def mcs_init(self, pe_504_, eg_, sigma_simulation_, mode='cal'):
-        # 读取设置参数
+        # 读取参数
         type = self._ParamDict['type']
-        STRAT_PRICE = self._DataDict['close_simulation'].iloc[-1]
-        future_price = STRAT_PRICE * (1 - 0.053)
+        START_PRICE = self._DataDict['close_simulation'].iloc[-1]
+        future_price = START_PRICE * (1 - 0.053)
         times = self._ParamDict['times']
         year = self._ParamDict['year']
         dt = self._Coefficient['dt']
         sqrt_dt = np.sqrt(dt)
         pe_0 = self._Coefficient['pe_0']
+        price_504 = 0
         _delta = 0
 
         if mode == 'cal':
@@ -156,26 +173,43 @@ class MCS:
         elif mode == 'sim':
             pe_504, eg, sigma_simulation = pe_504_, eg_, sigma_simulation_
 
-        earning_0 = STRAT_PRICE / pe_0
-        earning_504 = earning_0 * (1 + eg) ** year
-        price_504 = pe_504 * earning_504  # 一个计算中间值
+            earning_0 = START_PRICE / pe_0
+            earning_504 = earning_0 * (1 + eg) ** year
+            price_504 = pe_504 * earning_504
+
         ##################################################
         if type == 'ETF':
-            MU = (price_504 / STRAT_PRICE) ** (252 / (252 * year)) - 1
-        elif type == 'future':
-            abr = ((STRAT_PRICE - future_price) / STRAT_PRICE ) ** (1 / year)
-            pg = (price_504 - STRAT_PRICE) / STRAT_PRICE
+            MU = (price_504 / START_PRICE) ** (252 / (252 * year)) - 1
+        elif type == 'future1':
+            abr = ((START_PRICE - future_price) / START_PRICE ) ** (1 / year)
+            pg = (price_504 - START_PRICE) / START_PRICE
             MU = pg - abr + _delta
+        elif type == 'future2':
+            ##################################################
+            abr = self._DataDict['abr'][self.START-1]
+            # eg  = (1 + np.nanmedian(self._Coefficient['eg'][self.FROM: self.START])) ** 252 - 1
+            eg = self._Coefficient['eg'][self.START-1]
+            MU = eg + (-abr/100) + _delta
+            ##################################################
+            # median = np.median(self._DataDict['close_simulation'])
+            # print("median: ", median)
+            # MU = (median / START_PRICE) ** (1 / (252 * year))
+
+            print('eg_nanmedian: ', np.nanmedian(self._Coefficient['eg'][self.FROM: self.START]))
+            print('eg:', eg)
+            print('abr:', (-abr/100))
+            print('MU:', MU)
         ##################################################
-        iter_params = (times, MU, dt, sigma_simulation, sqrt_dt, STRAT_PRICE, price_504, year)
+
+        iter_params = (times, MU, dt, sigma_simulation, sqrt_dt, START_PRICE, price_504, year)
 
         return iter_params
 
     def mcs_iter(self, args):
         # price_start = 1
         times, MU, dt, sigma_simulation, sqrt_dt, price_start, price_504, year = args[0]
-
         h_sigma_sqr = sigma_simulation ** 2 / 2
+
         nudt = (MU - h_sigma_sqr) * dt
 
         volsdt = sigma_simulation * sqrt_dt
@@ -187,7 +221,6 @@ class MCS:
         delta_lnSt = nudt + volsdt * randomMarix
         lnSt = lnS + np.cumsum(delta_lnSt, axis=1)
         ST = np.exp(lnSt)
-        # print(ST[0])
 
         return ST
 
@@ -201,8 +234,8 @@ class MCS:
         year = self._ParamDict['year']
         KO_ratio = self._ParamDict['KO_ratio']
         KI_ratio = self._ParamDict['KI_ratio']
-        price_start = self._DataDict['close'].iloc[-1]
-        s = slice(20, int(year * 252)+1, 21)
+        price_start = self._DataDict['close_simulation'].iloc[-1]
+        s = slice(20, int(year * 252) + 1, 21)
         snowKickDict = {
             #             '日期': [self._DataDict['trade_date'][self._ParamDict['start'] - 1]],
             #             '收盘价': [self._DataDict['close'][self._ParamDict['start'] - 1]],
@@ -217,7 +250,7 @@ class MCS:
         while True:
             self._ResDict['knock_out'], self._ResDict['knock_in'], self._ResDict['knock_stable'] = 0, 0, 0
             if q.empty():
-                break
+                break  # 出口
             res = q.get()
             for pn_array in res[1]:
                 pn_slice = pn_array[s]
@@ -265,9 +298,6 @@ class MCS:
         蒙特卡洛自动运行
         :return: 返回统计结果
         """
-        # if mode not in ('cal', 'sim'):
-        #     print("Unexpected mode")
-        #     print("mode: 'cal' or 'sim'")
 
         self.loadData()
 
@@ -278,3 +308,83 @@ class MCS:
         snowKick = self.snowKick(q)
 
         return snowKick
+
+
+    def backTrader(self):
+        start = 500
+        lenth = 200
+        res_dict = {
+            'date' : [],
+            'close' : [],
+            'eg' : [],
+            'abr' : [],
+            'winRate' : [],
+            'realRes' : [],
+        }
+
+        self.loadData()
+
+        i = 0
+        FLAG = 0
+        sim_array = self._DataDict['sim_array']
+
+        while True:
+            if FLAG:
+                resDF = pd.DataFrame(res_dict)
+                resDF.to_excel('backTrade.xlsx', index=False)
+                break  # 出口
+
+            try:
+                self.START = start + i
+                self.FROM  = i
+
+                self.setData()
+                START_PRICE = self._DataDict['close_simulation'].iloc[-1]
+                print('Date: ', self._DataDict['trade_date'].iloc[self.START-1])
+                print('START_PRICE: ', START_PRICE)
+                print('index: ', self.START)
+                print('close: ', self._DataDict['close_simulation'].iloc[-1])
+                print('vol: ', self._Coefficient['sigma_simulation'])
+
+                sim_q = self.mcs()
+
+                sim_snowKick = self.snowKick(sim_q)
+
+                res_dict['date'].append(self._DataDict['trade_date'].iloc[self.START - 1])
+                res_dict['winRate'].append(float(round((sim_snowKick['敲出次数'] + sim_snowKick['稳定次数']) / self._ParamDict['times'], 4)))
+                res_dict['close'].append(START_PRICE)
+                res_dict['eg'].append(self._Coefficient['eg'][self.START-1])
+                res_dict['abr'].append(self._DataDict['abr'][self.START-1] / 100)
+
+                print(sim_snowKick)
+
+                real_q = Queue()
+                real_q.put(((0,0,0), [self._DataDict['sim_array']]))
+
+                real_snowKick = self.snowKick(real_q)
+                if int(real_snowKick['敲出次数']) & 1:
+                    realRes = 1
+                elif int(real_snowKick['敲入次数']) & 1:
+                    realRes = -1
+                else:
+                    realRes = 0
+                res_dict['realRes'].append(realRes)
+
+                print(real_snowKick)
+
+                print('#'*50)
+
+
+            # 到达回测序列终点
+            except:
+                resDF = pd.DataFrame(res_dict)
+                resDF.to_excel('backTrade.xlsx', index=False)
+                print('err')
+                break   # 出口
+
+            if i == lenth:
+                FLAG = 1
+
+            i += 1
+
+        return None
