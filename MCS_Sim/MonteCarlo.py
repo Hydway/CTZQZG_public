@@ -7,6 +7,7 @@ from queue import Queue
 from numba.experimental import jitclass
 from numba import njit, types, typed
 from concurrent.futures import ProcessPoolExecutor
+from pprint import pprint
 
 
 class MCS:
@@ -34,6 +35,7 @@ class MCS:
             'vol' : None,  # 60日年化波动率，数据来源：Wind
             'vol_simulation' : None,
             'sim_array' : None,
+            'MA' : None,
         }
 
         #     存储结果信息
@@ -45,6 +47,8 @@ class MCS:
             'knock_in': 0,
             'knock_out': 0,
             'knock_stable': 0,
+            'MU' : [],
+            'Median' : [],
             # 'vol': deque()
         }
         #     设置参数信息
@@ -55,7 +59,7 @@ class MCS:
             'start': self.START,
             'length': 1,  # 模拟的天数  没用到
             'year': year,  # 雪球结构时长
-            'KO_ratio': 1.1,  # 敲出系数
+            'KO_ratio': 1,  # 敲出系数
             'KI_ratio': 0.8,  # 敲入系数
         }
         #     设置计算量
@@ -78,7 +82,7 @@ class MCS:
         """
         filename = 'data.xlsx'
         path = os.getcwd() + '\\' + filename
-        data = pd.read_excel(path, 'Sheet4')
+        data = pd.read_excel(path, 'Sheet5')
 
         #         设置 _DataDict
         self._DataDict['trade_date'] = data['Date']
@@ -93,12 +97,16 @@ class MCS:
 
         self._Coefficient['eg'] = data['eg']
 
+        if 'MA' in data.columns:
+            self._DataDict['MA'] = data['MA']
+
+
     def setData(self, ):
         """
         数据初始化
         :return: None
         """
-        year_ = 1.5
+        year_ = 1
 
         self._ParamDict['start'] = self.START
 
@@ -112,8 +120,8 @@ class MCS:
 
         sim_lenth = int(year * 252) + 1
 
-        # self._DataDict['close_simulation'] = close[int(start - 252 * year_): start]
-        self._DataDict['close_simulation'] = close[int(start - 1): start]
+        self._DataDict['close_simulation'] = close[int(start - 252 * year_): start]
+        # self._DataDict['close_simulation'] = close[int(start - 1): start]
 
         self._DataDict['vol_simulation'] = self._DataDict['vol'][int(start - 1): start]
 
@@ -186,19 +194,25 @@ class MCS:
             MU = pg - abr + _delta
         elif type == 'future2':
             ##################################################
-            abr = self._DataDict['abr'][self.START-1]
+            # abr = self._DataDict['abr'][self.START-1]
             # eg  = (1 + np.nanmedian(self._Coefficient['eg'][self.FROM: self.START])) ** 252 - 1
-            eg = self._Coefficient['eg'][self.START-1]
-            MU = eg + (-abr/100) + _delta
+            # eg = self._Coefficient['eg'][self.START-1]
+            # MU = eg + (-abr/100) + _delta
             ##################################################
-            # median = np.median(self._DataDict['close_simulation'])
-            # print("median: ", median)
-            # MU = (median / START_PRICE) ** (1 / (252 * year))
+            median = np.median(self._DataDict['close_simulation'])
+            MU = (1 + ((median - START_PRICE) / START_PRICE)) ** year - 1
+            print("meian: ", median)
+            self._ResDict['Median'].append(median)
+            # MA = self._DataDict['MA'][self.START-1]
+            # print("ma: ", MA)
 
-            print('eg_nanmedian: ', np.nanmedian(self._Coefficient['eg'][self.FROM: self.START]))
-            print('eg:', eg)
-            print('abr:', (-abr/100))
+            # MU = (1 + ((MA - START_PRICE) / START_PRICE)) ** year - 1
+
+            # print('eg_nanmedian: ', np.nanmedian(self._Coefficient['eg'][self.FROM: self.START]))
+            # print('eg:', eg)
+            # print('abr:', (-abr/100))
             print('MU:', MU)
+            self._ResDict['MU'].append(MU)
         ##################################################
 
         iter_params = (times, MU, dt, sigma_simulation, sqrt_dt, START_PRICE, price_504, year)
@@ -311,8 +325,8 @@ class MCS:
 
 
     def backTrader(self):
-        start = 500
-        lenth = 200
+        start = 1600
+        lenth = 800
         res_dict = {
             'date' : [],
             'close' : [],
@@ -320,6 +334,8 @@ class MCS:
             'abr' : [],
             'winRate' : [],
             'realRes' : [],
+            'MU' : None,
+            'Median' : None,
         }
 
         self.loadData()
@@ -331,7 +347,6 @@ class MCS:
         while True:
             if FLAG:
                 resDF = pd.DataFrame(res_dict)
-                resDF.to_excel('backTrade.xlsx', index=False)
                 break  # 出口
 
             try:
@@ -351,7 +366,9 @@ class MCS:
                 sim_snowKick = self.snowKick(sim_q)
 
                 res_dict['date'].append(self._DataDict['trade_date'].iloc[self.START - 1])
-                res_dict['winRate'].append(float(round((sim_snowKick['敲出次数'] + sim_snowKick['稳定次数']) / self._ParamDict['times'], 4)))
+                winRate = float(round((sim_snowKick['敲出次数'] + sim_snowKick['稳定次数']) / self._ParamDict['times'], 4))
+                print("胜率：", winRate)
+                res_dict['winRate'].append(winRate)
                 res_dict['close'].append(START_PRICE)
                 res_dict['eg'].append(self._Coefficient['eg'][self.START-1])
                 res_dict['abr'].append(self._DataDict['abr'][self.START-1] / 100)
@@ -361,7 +378,13 @@ class MCS:
                 real_q = Queue()
                 real_q.put(((0,0,0), [self._DataDict['sim_array']]))
 
-                real_snowKick = self.snowKick(real_q)
+                try:
+                    real_snowKick = self.snowKick(real_q)
+                except:
+                    res_dict['realRes'].append(None)
+                    resDF = pd.DataFrame(res_dict)
+                    break
+
                 if int(real_snowKick['敲出次数']) & 1:
                     realRes = 1
                 elif int(real_snowKick['敲入次数']) & 1:
@@ -370,6 +393,9 @@ class MCS:
                     realRes = 0
                 res_dict['realRes'].append(realRes)
 
+                res_dict['MU'] = self._ResDict['MU']
+                res_dict['Median'] = self._ResDict['Median']
+
                 print(real_snowKick)
 
                 print('#'*50)
@@ -377,8 +403,8 @@ class MCS:
 
             # 到达回测序列终点
             except:
+                pprint(res_dict)
                 resDF = pd.DataFrame(res_dict)
-                resDF.to_excel('backTrade.xlsx', index=False)
                 print('err')
                 break   # 出口
 
@@ -386,5 +412,7 @@ class MCS:
                 FLAG = 1
 
             i += 1
+
+        resDF.to_excel('backTrade.xlsx', index=False)
 
         return None
