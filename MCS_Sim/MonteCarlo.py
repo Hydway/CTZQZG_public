@@ -80,9 +80,9 @@ class MCS:
         数据文件名：Temp.xlsx
         :return: None
         """
-        filename = 'data.xlsx'
-        path = os.getcwd() + '\\' + filename
-        data = pd.read_excel(path, 'Sheet5')
+        filename = 'M.DCE.xlsx'
+        path = os.getcwd() + '\\DATA\\' + filename
+        data = pd.read_excel(path, 'Sheet1')
 
         #         设置 _DataDict
         self._DataDict['trade_date'] = data['Date']
@@ -325,17 +325,17 @@ class MCS:
 
 
     def backTrader(self):
-        start = 1600
-        lenth = 800
+        start = 252
+        lenth = 10000
         res_dict = {
-            'date' : [],
-            'close' : [],
-            'eg' : [],
-            'abr' : [],
-            'winRate' : [],
+            # 'date' : [],
+            # 'close' : [],
+            # 'eg' : [],
+            # 'abr' : [],
+            # 'winRate' : [],
             'realRes' : [],
-            'MU' : None,
-            'Median' : None,
+            # 'MU' : None,
+            # 'Median' : None,
         }
 
         self.loadData()
@@ -354,27 +354,28 @@ class MCS:
                 self.FROM  = i
 
                 self.setData()
+###################################################
                 START_PRICE = self._DataDict['close_simulation'].iloc[-1]
                 print('Date: ', self._DataDict['trade_date'].iloc[self.START-1])
                 print('START_PRICE: ', START_PRICE)
-                print('index: ', self.START)
-                print('close: ', self._DataDict['close_simulation'].iloc[-1])
-                print('vol: ', self._Coefficient['sigma_simulation'])
-
-                sim_q = self.mcs()
-
-                sim_snowKick = self.snowKick(sim_q)
-
-                res_dict['date'].append(self._DataDict['trade_date'].iloc[self.START - 1])
-                winRate = float(round((sim_snowKick['敲出次数'] + sim_snowKick['稳定次数']) / self._ParamDict['times'], 4))
-                print("胜率：", winRate)
-                res_dict['winRate'].append(winRate)
-                res_dict['close'].append(START_PRICE)
-                res_dict['eg'].append(self._Coefficient['eg'][self.START-1])
-                res_dict['abr'].append(self._DataDict['abr'][self.START-1] / 100)
-
-                print(sim_snowKick)
-
+                # print('index: ', self.START)
+                # print('close: ', self._DataDict['close_simulation'].iloc[-1])
+                # print('vol: ', self._Coefficient['sigma_simulation'])
+                #
+                # sim_q = self.mcs()
+                #
+                # sim_snowKick = self.snowKick(sim_q)
+                #
+                # res_dict['date'].append(self._DataDict['trade_date'].iloc[self.START - 1])
+                # winRate = float(round((sim_snowKick['敲出次数'] + sim_snowKick['稳定次数']) / self._ParamDict['times'], 4))
+                # print("胜率：", winRate)
+                # res_dict['winRate'].append(winRate)
+                # res_dict['close'].append(START_PRICE)
+                # res_dict['eg'].append(self._Coefficient['eg'][self.START-1])
+                # res_dict['abr'].append(self._DataDict['abr'][self.START-1] / 100)
+                #
+                # print(sim_snowKick)
+######################################################
                 real_q = Queue()
                 real_q.put(((0,0,0), [self._DataDict['sim_array']]))
 
@@ -393,8 +394,8 @@ class MCS:
                     realRes = 0
                 res_dict['realRes'].append(realRes)
 
-                res_dict['MU'] = self._ResDict['MU']
-                res_dict['Median'] = self._ResDict['Median']
+                # res_dict['MU'] = self._ResDict['MU']
+                # res_dict['Median'] = self._ResDict['Median']
 
                 print(real_snowKick)
 
