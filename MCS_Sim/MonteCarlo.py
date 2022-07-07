@@ -19,7 +19,7 @@ class MCS:
     # private:
     def __init__(self, times=int(1e+3), mode='sim', type='ETF', year=2):
         #     存储数据文件信息
-        self.START = 978
+        self.START = 0
         # self.FROM  = self.START - 21 * 3
         self.FROM = 0
 
@@ -80,8 +80,8 @@ class MCS:
         数据文件名：Temp.xlsx
         :return: None
         """
-        filename = 'M.DCE.xlsx'
-        path = os.getcwd() + '\\DATA\\' + filename
+        filename = 'VIX.xlsx'
+        path = os.getcwd() + '\\DATA\\VIX\\' + filename
         data = pd.read_excel(path, 'Sheet1')
 
         #         设置 _DataDict
@@ -249,7 +249,7 @@ class MCS:
         KO_ratio = self._ParamDict['KO_ratio']
         KI_ratio = self._ParamDict['KI_ratio']
         price_start = self._DataDict['close_simulation'].iloc[-1]
-        s = slice(20, int(year * 252) + 1, 21)
+        s = slice(20+21*3, int(year * 252) + 1, 21)
         snowKickDict = {
             #             '日期': [self._DataDict['trade_date'][self._ParamDict['start'] - 1]],
             #             '收盘价': [self._DataDict['close'][self._ParamDict['start'] - 1]],
@@ -328,7 +328,7 @@ class MCS:
         start = 252
         lenth = 10000
         res_dict = {
-            # 'date' : [],
+            'date' : [],
             # 'close' : [],
             # 'eg' : [],
             # 'abr' : [],
@@ -366,7 +366,7 @@ class MCS:
                 #
                 # sim_snowKick = self.snowKick(sim_q)
                 #
-                # res_dict['date'].append(self._DataDict['trade_date'].iloc[self.START - 1])
+                res_dict['date'].append(self._DataDict['trade_date'].iloc[self.START - 1])
                 # winRate = float(round((sim_snowKick['敲出次数'] + sim_snowKick['稳定次数']) / self._ParamDict['times'], 4))
                 # print("胜率：", winRate)
                 # res_dict['winRate'].append(winRate)
