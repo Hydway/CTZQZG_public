@@ -39,8 +39,8 @@ class lgb:
             :param filename:
             :return:
             """
-            filename = '000905.SH.xlsx'
-            path = os.getcwd() + '\\DATA\\000905.SH\\' + filename
+            filename = 'VIX.xlsx'
+            path = os.getcwd() + '\\DATA\\VIX\\' + filename
             self.data = pd.read_excel(path, 'Sheet1')
 
       def cal_dydx(self, y:list, n:int):
