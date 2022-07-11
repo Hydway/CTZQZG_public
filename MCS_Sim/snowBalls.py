@@ -117,11 +117,45 @@ class snowBalls:
 
         return res_df
 
-    def stat(self, df:pd.DataFrame):
+    def stat(self):
 
         stat_dict = {
-
+            'Date': [],
+            'close': [],
+            'kickOUT_date': [],
+            'kickIN_date': [],
+            'profits': [],
         }
+
+        for i in range(len(self.data)):
+            self.CLOSE = self.data['close'][i]
+            p = i
+            lasted = 0
+            profits = 0
+            kickOUT_list = []
+            kickIN_list = []
+            while 1:
+                if lasted >= 12:
+                    break
+                obsv_list = self.obsv_date(p)
+                if obsv_list:
+                    res = self.snowKick(obsv_list)
+                    profits += res['profit']
+                    if res['FLAG'] == 1:
+                        kickOUT_list.append(res['date'].strftime('%Y-%m-%d'))
+                    else:
+                        kickIN_list.append(res['date'].strftime('%Y-%m-%d'))
+                    lasted += res['lasting']
+                else:
+                    break
+                p = res['obsv'] + 1
+            stat_dict['Date'].append(self.data['Date'][i].strftime('%Y-%m-%d'))
+            stat_dict['close'].append(self.data['close'][i])
+            stat_dict['kickOUT_date'].append(kickOUT_list)
+            stat_dict['kickIN_date'].append(kickIN_list)
+            stat_dict['profits'].append(profits)
+
+        return pd.DataFrame(stat_dict)
 
 
     def snowKick(self, obsv_list:list, type='FCN'):
@@ -136,10 +170,12 @@ class snowBalls:
     def FCN(self, obsv_list:list):
 
         res = {
-            'date' : None,
+            'date' : None,          # 出场日期
             'FLAG' : None,
             'profit': None,
             'out_price' : None,
+            'lasting' : None,
+            'obsv' : None,
         }
         # 敲出
         for obsv in obsv_list:
@@ -148,6 +184,8 @@ class snowBalls:
                 res['FLAG'] = 1
                 res['out_price'] = self.data['close'][obsv]
                 res['profit'] = (obsv_list.index(obsv) + 1) * self.coupon_monthly
+                res['lasting'] = obsv_list.index(obsv) + 1
+                res['obsv'] = obsv
                 return res
         # 敲入
         if self.data['close'][obsv_list[-1]] < self.CLOSE * self. KI:
@@ -156,6 +194,8 @@ class snowBalls:
             res['profit'] = self.year * 12 * self.coupon_monthly - \
                             ((self.CLOSE * self. KI - self.data['close'][obsv_list[-1]] )/ self.CLOSE * self. KI)
             res['out_price'] = self.data['close'][obsv_list[-1]]
+            res['lasting'] = len(obsv_list)
+            res['obsv'] = obsv_list[-1]
             return res
         # 稳定
         else:
@@ -163,17 +203,23 @@ class snowBalls:
             res['FLAG'] = 0
             res['profit'] = self.year * 12 * self.coupon_monthly
             res['out_price'] = self.data['close'][obsv_list[-1]]
+            res['lasting'] = len(obsv_list)
+            res['obsv'] = obsv_list[-1]
             return res
 
     def run(self):
 
         self.loadData()
 
-        df = self.backTrader()
+        # df = self.backTrader()
+        # df.to_excel('res.xlsx', index=False)
 
+        df = self.stat()
+        print('lenth:', len(df))
+        pprint(df.head())
         df.to_excel('res.xlsx', index=False)
 
-        return  None
+        return None
 
 if __name__ == '__main__':
     print("启动模拟时间：", datetime.now())
