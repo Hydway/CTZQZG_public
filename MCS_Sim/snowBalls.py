@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-from queue import Queue
 from pprint import pprint
 import os
 from datetime import datetime
@@ -12,17 +11,19 @@ class snowBalls:
 
         self.data = None
         self.CLOSE = None
+        self.i = None
         self.showon = 0
-        self.type = 'DSS'
+        self.type = 'CLA_call'
         self.freez = 3          # 封闭期
         self.year = 1           # 雪球时长
         self.KO = 1.03          # 敲出系数
-        self.KI = 0.85          # 敲入系数
+        self.KI = 0.75          # 敲入系数
         self.PE_style = 1       # PE计算方式：0为静态，1为滚动
         self.PE_static_thsh = 30       # 静态PE阈值，数值为PE绝对数值
         self.PE_trailing_thsh = 25        # 滚动PE阈值，数值为历史周期分位数
         self.PE_trailing_lenth = 252       # 滚动PE历史周期长度，数值单位：日
-        self.coupon_monthly = 0.053 / 12   # 月票息
+        self.coupon_yearly = 0.175    #年利率
+        self.coupon_monthly = self.coupon_yearly / 12   # 月票息
         self.N = 3 /100             # 大于年化 N% 概率阈值
 
 
@@ -107,7 +108,8 @@ class snowBalls:
         }
 
         for i in range(len(self.data)):
-
+            
+            self.i = i
             thsh = 0
             if self.data['pe_ttm'][i] >= self.get_PE_thsh(i):
                 thsh = 1  # PE高于阈值
@@ -259,7 +261,8 @@ class snowBalls:
 
 
 
-    def snowKick(self, obsv_list:list, type='FCN'):
+    def snowKick(self, obsv_list:list,):
+        type = self.type
         ####################
         # 字典模拟 switch
         ####################
@@ -273,6 +276,8 @@ class snowBalls:
             res = self.DSS(obsv_list)
         if type == 'CLA':
             res = self.CLA(obsv_list)
+        if type == 'CLA_call':
+            res = self.CLA_call(obsv_list)
         return res
 
 
@@ -372,6 +377,7 @@ class snowBalls:
                 res['FLAG'] = 1
                 res['out_price'] = self.data['close'][obsv]
                 res['profit'] = res['profit'] = self.coupon_monthly * (self.freez + obsv_list.index(obsv) + 1)
+                res['lasting'] = self.freez + obsv_list.index(obsv) + 1
                 return res
         # 敲入
         price_min = np.min(self.data['close'][i:i+252])
@@ -383,12 +389,14 @@ class snowBalls:
                 res['FLAG'] = -1
                 res['profit'] =  - ((self.CLOSE * self. KI - self.data['close'][obsv_list[-1]] ) / self.CLOSE)
                 res['out_price'] = self.data['close'][obsv_list[-1]]
+                res['lasting'] = self.freez + len(obsv_list)
                 return res
             else:
                 res['date'] = self.data['Date'][obsv_list[-1]]
                 res['FLAG'] = -1
                 res['profit'] =  0
                 res['out_price'] = self.data['close'][obsv_list[-1]]
+                res['lasting'] = self.freez + len(obsv_list)
                 return res
         # 稳定
         else:
@@ -396,6 +404,7 @@ class snowBalls:
             res['FLAG'] = 0
             res['profit'] = self.year * self.coupon_yearly
             res['out_price'] = self.data['close'][obsv_list[-1]]
+            res['lasting'] = self.freez + len(obsv_list)
             return res
 
 
@@ -416,6 +425,7 @@ class snowBalls:
                     res['FLAG'] = 1
                     res['out_price'] = self.data['close'][obsv]
                     res['profit'] = (self.coupon_yearly+1) ** ((self.freez + obsv_list.index(obsv) + 1)/12) - 1
+                    res['lasting'] = self.freez + obsv_list.index(obsv) + 1
                     return res
             else:
                 sum_down = down *((self.freez + obsv_list.index(obsv)) - KO_decrease_months)
@@ -424,6 +434,7 @@ class snowBalls:
                     res['FLAG'] = 1
                     res['out_price'] = self.data['close'][obsv]
                     res['profit'] = (self.coupon_yearly+1) ** ((self.freez + obsv_list.index(obsv) + 1)/12) - 1
+                    res['lasting'] = self.freez + obsv_list.index(obsv) + 1
                     return res
         # 敲入
         price_min = np.min(self.data['close'][i:i+252])
@@ -433,12 +444,14 @@ class snowBalls:
                 res['FLAG'] = -1
                 res['profit'] =  - ((self.CLOSE - self.data['close'][obsv_list[-1]] ) / self.CLOSE)
                 res['out_price'] = self.data['close'][obsv_list[-1]]
+                res['lasting'] = self.freez + len(obsv_list)
                 return res
             else:
                 res['date'] = self.data['Date'][obsv_list[-1]]
                 res['FLAG'] = -1
                 res['profit'] =  0
                 res['out_price'] = self.data['close'][obsv_list[-1]]
+                res['lasting'] = self.freez + len(obsv_list)
                 return res
         # 稳定
         else:
@@ -446,6 +459,7 @@ class snowBalls:
             res['FLAG'] = 0
             res['profit'] = self.year * self.coupon_yearly
             res['out_price'] = self.data['close'][obsv_list[-1]]
+            res['lasting'] = self.freez + len(obsv_list)
             return res
 
 
@@ -471,6 +485,7 @@ class snowBalls:
                         else:
                             res['profit'] +=  (self.coupon_yearly - down_ret*(obsv_mouths - self.freez + 1))/12
                     #res['profit'] = (self.coupon_yearly + 1) ** ((self.freez + obsv_list.index(obsv) + 1) / 12) - 1
+                    res['lasting'] = self.freez + obsv_list.index(obsv) + 1
                     return res
             else:
                 sum_down = down_price *((self.freez + obsv_list.index(obsv)) - KO_decrease_months)
@@ -485,6 +500,7 @@ class snowBalls:
                             res['profit'] +=  (self.coupon_yearly - down_ret*(obsv_mouths - self.freez + 1))/12
                     # res['profit'] = (self.coupon_yearly + 1 - down_ret * (self.freez + obsv_list.index(obsv) + 1 - self.freez)) \
                     #                     ** ((self.freez + obsv_list.index(obsv) + 1)/12) - 1
+                    res['lasting'] = self.freez + obsv_list.index(obsv) + 1
                     return res
         # 敲入
         price_min = min(self.data['close'][i:i+252])
@@ -494,12 +510,14 @@ class snowBalls:
                 res['FLAG'] = -1
                 res['profit'] =  - ((self.CLOSE - self.data['close'][obsv_list[-1]] ) / self.CLOSE)
                 res['out_price'] = self.data['close'][obsv_list[-1]]
+                res['lasting'] = self.freez + len(obsv_list)
                 return res
             else:
                 res['date'] = self.data['Date'][obsv_list[-1]]
                 res['FLAG'] = -1
                 res['profit'] =  0
                 res['out_price'] = self.data['close'][obsv_list[-1]]
+                res['lasting'] = self.freez + len(obsv_list)
                 return res
         # 稳定
         else:
@@ -512,6 +530,7 @@ class snowBalls:
                     res['profit'] +=  (self.coupon_yearly - down_ret*(obsv_mouths - self.freez + 1))/12            
             # res['profit'] = (self.coupon_yearly + 1 - down_ret * (self.freez + obsv_list.index(obsv) + 1 - self.freez)) - 1
             res['out_price'] = self.data['close'][obsv_list[-1]]
+            res['lasting'] = self.freez + len(obsv_list)
             return res
         
     #经典雪球
@@ -531,33 +550,91 @@ class snowBalls:
                 res['out_price'] = self.data['close'][obsv]
                 #res['profit'] = (self.coupon_yearly+1) ** ((self.freez + obsv_list.index(obsv) + 1)/12) - 1
                 res['profit'] = self.coupon_monthly * (self.freez + obsv_list.index(obsv) + 1)
+                res['lasting'] = self.freez + obsv_list.index(obsv) + 1
                 return res
-        # 敲入
-        price_min = min(self.data['close'][i:i+252])
-         
+    # 敲入
+        price_min = min(self.data['close'][i : i + self.year * 252])
         
-        if price_min < self.CLOSE *self.KI:            
-            if self.data['close'][obsv_list[-1]] < self.CLOSE * self. KI:
+        if price_min < self.CLOSE * self.KI:            
+            if self.data['close'][obsv_list[-1]] < self.CLOSE * self.KI:
                 res['date'] = self.data['Date'][obsv_list[-1]]
                 res['FLAG'] = -1
                 res['profit'] =  - ((self.CLOSE - self.data['close'][obsv_list[-1]] ) / self.CLOSE)
                 res['out_price'] = self.data['close'][obsv_list[-1]]
+                res['lasting'] = self.freez + len(obsv_list)
                 return res
             else:
                 res['date'] = self.data['Date'][obsv_list[-1]]
                 res['FLAG'] = -1
                 res['profit'] =  0
                 res['out_price'] = self.data['close'][obsv_list[-1]]
+                res['lasting'] = self.freez + len(obsv_list)
                 return res
         # 稳定
         else:
             res['date'] = self.data['Date'][obsv_list[-1]]
             res['FLAG'] = 0
-            res['profit'] = self.year * self.coupon_yearly
+            res['profit'] = self.year * self.coupon_monthly * 12
             res['out_price'] = self.data['close'][obsv_list[-1]]
+            res['lasting'] = self.freez + len(obsv_list)
             return res
         
+    #经典雪球
+    def CLA_call(self, obsv_list:list):
+        i = self.i
+        res = {
+            'date' : None,
+            'FLAG' : None,
+            'profit': None,
+            'out_price' : None,
+        }
         
+        price_min = min(self.data['close'][i : i + self.year * 252])
+        
+        # 敲出
+        for obsv in obsv_list:
+            if self.data['close'][obsv] >= self.CLOSE * self.KO:    
+                if price_min < self.CLOSE * self.KI:   
+                    res['date'] = str(self.data['Date'][obsv]) + '*'
+                    res['FLAG'] = 1
+                    res['out_price'] = self.data['close'][obsv]
+                    #res['profit'] = (self.coupon_yearly+1) ** ((self.freez + obsv_list.index(obsv) + 1)/12) - 1
+                    res['profit'] = self.coupon_monthly * (self.freez + obsv_list.index(obsv) + 1) + (self.data['close'][obsv] - self.CLOSE * self.KI)/(self.CLOSE * self.KI)
+                    res['lasting'] = self.freez + obsv_list.index(obsv) + 1
+                    return res
+                else:
+                    res['date'] = self.data['Date'][obsv]
+                    res['FLAG'] = 1
+                    res['out_price'] = self.data['close'][obsv]
+                    #res['profit'] = (self.coupon_yearly+1) ** ((self.freez + obsv_list.index(obsv) + 1)/12) - 1
+                    res['profit'] = self.coupon_monthly * (self.freez + obsv_list.index(obsv) + 1)
+                    res['lasting'] = self.freez + obsv_list.index(obsv) + 1
+                    return res                    
+        # 敲入
+        if price_min < self.CLOSE * self.KI:            
+            if self.data['close'][obsv_list[-1]] < self.CLOSE * self.KI:
+                res['date'] = self.data['Date'][obsv_list[-1]]
+                res['FLAG'] = -1
+                res['profit'] =  - ((self.CLOSE - self.data['close'][obsv_list[-1]] ) / self.CLOSE) + (self.data['close'][obsv_list[-1]] - self.CLOSE * self.KI)/(self.CLOSE * self.KI)
+                res['out_price'] = self.data['close'][obsv_list[-1]]
+                res['lasting'] = self.freez + len(obsv_list)
+                return res
+            else:
+                res['date'] = self.data['Date'][obsv_list[-1]]
+                res['FLAG'] = -1
+                res['profit'] =  0 + (self.data['close'][obsv_list[-1]] - self.CLOSE * self.KI)/(self.CLOSE * self.KI)
+                res['out_price'] = self.data['close'][obsv_list[-1]]
+                res['lasting'] = self.freez + len(obsv_list)
+                return res
+        # 稳定
+        else:
+            res['date'] = self.data['Date'][obsv_list[-1]]
+            res['FLAG'] = 0
+            res['profit'] = self.year * self.coupon_monthly * 12
+            res['out_price'] = self.data['close'][obsv_list[-1]]
+            res['lasting'] = self.freez + len(obsv_list)
+            return res
+                
         
 if __name__ == '__main__':
 
