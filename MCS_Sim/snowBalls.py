@@ -317,18 +317,6 @@ class snowBalls:
             res['obsv'] = obsv_list[-1]
             return res
 
-    # def run(self):
-
-    #     self.loadData()
-
-    #     df = self.backTrader()
-    #     df.to_excel('res.xlsx', index=False)
-
-    #     # df = self.stat()
-    #     # print('lenth:', len(df))
-    #     # pprint(df.head())
-    #     # df.to_excel('res.xlsx', index=False)
-
 
     def run(self):
 
