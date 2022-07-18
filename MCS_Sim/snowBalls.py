@@ -13,7 +13,7 @@ class snowBalls:
         self.CLOSE = None
         self.i = None
         self.showon = 0
-        self.type = 'CLA_call'
+        self.type = 'FCN'
         self.freez = 3          # 封闭期
         self.year = 1           # 雪球时长
         self.KO = 1.03          # 敲出系数
@@ -156,6 +156,15 @@ class snowBalls:
 
         return res_df
 
+    def counting_month(self, lenth):
+
+        if lenth > 0:
+            return lenth
+        else:
+            lasted_months = 12 * (self.data['Date'][len(self.data) - 1].year - self.data['Date'][0].year - 1) +\
+                            (12 - self.data['Date'][0].month) + (self.data['Date'][len(self.data) - 1].month)
+            return int(lasted_months - 1)
+
 
     def Trailing(self):
         """
@@ -178,7 +187,7 @@ class snowBalls:
             kickOUT_list = []
             kickIN_list = []
             while 1:
-                if lasted >= 12:
+                if lasted >= self.counting_month(-1):
                     break
                 obsv_list = self.obsv_date(p)
                 if obsv_list:
@@ -259,8 +268,6 @@ class snowBalls:
         return pd.DataFrame(stat_dict)
 
 
-
-
     def snowKick(self, obsv_list:list,):
         type = self.type
         ####################
@@ -327,23 +334,22 @@ class snowBalls:
 
         self.loadData()
 
-
         filename = self.type + '_res_' + str(datetime.now().hour) + '-' +  str(datetime.now().minute) + '.xlsx'
         writer = pd.ExcelWriter(filename)
 
-        df = self.backTrader()
+        # df = self.backTrader()
+        #
+        # df_stat = self.stat(df)
+        #
+        # self.showon = 1
+        # df_full = self.backTrader()
+        #
+        # df_full.to_excel(writer, 'Sheet1', index=False)
+        # df_stat.to_excel(writer, 'Sheet2', index=False)
 
-        df_stat = self.stat(df)
+        df = self.Trailing()
+        df.to_excel(writer, 'Sheet1', index=False)
 
-        # print('lenth:', len(df))
-        # pprint(df.head())
-        # df.to_excel('res.xlsx', 'Sheet2', index=False)
-
-        self.showon = 1
-        df_full = self.backTrader()
-
-        df_full.to_excel(writer, 'Sheet1', index=False)
-        df_stat.to_excel(writer, 'Sheet2', index=False)
         # 保存
         writer.save()
 
