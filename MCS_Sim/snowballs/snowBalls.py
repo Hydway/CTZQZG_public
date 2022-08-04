@@ -5,8 +5,6 @@ import os
 from datetime import datetime
 from time import time
 from snowBalls_structure import Structure
-import warnings
-warnings.filterwarnings("ignore")
 
 
 class snowBalls:
@@ -18,20 +16,19 @@ class snowBalls:
         self.i = None
         self.showon = 0
         self.structure = None
-        self.type = 'CLA_call_boost'       # 1.经典雪球：CLA; 2.经典雪球+买入期权：CLA_call; 3.OTM: OTM; 4.救生舱：LBT; 5.CLA_boost:经典雪球+指数增强产品
-        self.freez = 2          # 封闭期
+        self.type = 'CLA'       # 1.经典雪球：CLA; 2.经典雪球+买入期权：CLA_call; 3.OTM: OTM; 4.救生舱： LBT
+        self.freez = 3          # 封闭期
         # self.year = 2           # 雪球时长
-        self.duration = 24           # 雪球时长
-        self.max_duration = self.duration
-        self.KO = 1.0           # 敲出系数
+        self.duration = 12           # 雪球时长
+        self.KO = 1.03           # 敲出系数
+        self.KI = 0.75          # 敲入系数
+        self.coupon_yearly = 0.153    #年利率
         self.KO_LBT = 0.85      # 救生艇敲出系数
         self.KO_fix = self.KO           # 敲出系数
-        self.KI = 0.70          # 敲入系数
         self.PE_style = 0       # PE计算方式：0为静态，1为滚动
-        self.PE_static_thsh = 1000       # 静态PE阈值，数值为PE绝对数值
+        self.PE_static_thsh = 40       # 静态PE阈值，数值为PE绝对数值
         self.PE_trailing_thsh = 25        # 滚动PE阈值，数值为历史周期分位数
         self.PE_trailing_lenth = 252       # 滚动PE历史周期长度，数值单位：日
-        self.coupon_yearly = 0.0635    #年利率
         self.coupon_yearly_LBT = 0.0635    #年利率_触发救生舱条件后
         self.obsv_date_LBT = 6          #重置观察期
         self.coupon_monthly = self.coupon_yearly / 12   # 月票息
@@ -39,10 +36,6 @@ class snowBalls:
         self.call_cost = 0.05     #期权费
         self.begindate = '2007-01-15'
         self.enddate = '2022-07-07'
-        # 针对指数增强
-        self.is_fix = 0 # 产品是否固定 0:不固定
-        self.length_boost = 24 # 指增时长
-        self.a_boost = 0.05 # 指增超额收益
         # self.recent_year = 0        # 1:回测最近一年；0：回测一年前
         
 
@@ -50,7 +43,7 @@ class snowBalls:
         
         begindate = datetime.strptime(self.begindate, "%Y-%m-%d")
         enddate = datetime.strptime(self.enddate, "%Y-%m-%d")
-        path = os.getcwd() + '\\' + '000905.xlsx' + filename
+        path = os.getcwd() + '\\' + '000852.xlsx' + filename
         self.data = pd.read_excel(path, 'Sheet1')
         self.data = self.data[(snowBall.data['Date'] >= begindate) & (snowBall.data['Date'] <= enddate)]
         self.data = self.data.reset_index()
@@ -73,11 +66,6 @@ class snowBalls:
         self.structure.coupon_yearly_LBT = self.coupon_yearly_LBT 
         self.structure.obsv_date_LBT = self.obsv_date_LBT
         self.structure.duration = self.duration 
-        self.structure.is_fix =  self.is_fix # 产品是否固定
-        self.structure.length_boost = self.length_boost # 指增长度
-        self.structure.a_boost = self.a_boost # 指增超额收益
-
-
     def obsv_date(self, i):
 
         pre, j = i, i + 1  # 双指针
@@ -144,8 +132,8 @@ class snowBalls:
             'close' : [],
             'PE' : [],
             'realRes': [],
-            'knockOUT_date' : [],
-            'knockIN_date' : [],
+            'kickOUT_date' : [],
+            'kickIN_date' : [],
             'out_price' : [],
             'lasting' : [],
             'profits' : [],
@@ -153,14 +141,12 @@ class snowBalls:
             'ever_in' : [],
         }
         self.recent_year = recent_year
-        if self.is_fix == 0:
-            self.max_duration = self.duration + self.length_boost
         for i in range(len(self.data)):            
             self.i = i
             self.structure.i = self.i
             thsh = 0
             if self.recent_year:
-                if i > len(self.data) - 21 * self.freez:
+                if i > len(self.data) - 21 * self.duration:
                     self.freez = 0
                     self.structure.freez = 0
                     if self.data['pe_ttm'][i] >= self.get_PE_thsh(i):
@@ -179,8 +165,8 @@ class snowBalls:
                             res_dict['lasting'].append(None)
                             res_dict['profits'].append(None)
                             res_dict['annually'].append(None)
-                            res_dict['knockOUT_date'].append(None)
-                            res_dict['knockIN_date'].append(None)
+                            res_dict['kickOUT_date'].append(None)
+                            res_dict['kickIN_date'].append(None)
                             res_dict['ever_in'].append(None)
                     else:
                         res_dict['Date'].append(self.data['Date'][i])
@@ -194,22 +180,23 @@ class snowBalls:
                         res_dict['annually'].append(annually)
                         res_dict['ever_in'].append(res['ever_in'])
                         if res['FLAG'] == 1:
-                            res_dict['knockOUT_date'].append(res['date'])
-                            res_dict['knockIN_date'].append(np.nan)
+                            res_dict['kickOUT_date'].append(res['date'])
+                            res_dict['kickIN_date'].append(np.nan)
                         elif res['FLAG'] == 0:
-                            res_dict['knockOUT_date'].append(np.nan)
-                            res_dict['knockIN_date'].append(np.nan)
+                            res_dict['kickOUT_date'].append(np.nan)
+                            res_dict['kickIN_date'].append(np.nan)
                         elif res['FLAG'] == -1:
-                            res_dict['knockOUT_date'].append(np.nan)
-                            res_dict['knockIN_date'].append(res['date'])
-
+                            res_dict['kickOUT_date'].append(np.nan)
+                            res_dict['kickIN_date'].append(res['date'])
+                    
+            
             else:
                 if self.data['pe_ttm'][i] >= self.get_PE_thsh(i):
                     thsh = 1  # PE高于阈值
                 self.CLOSE = self.data['close'][i]
                 self.structure.CLOSE = self.CLOSE
                 obsv_list = self.obsv_date(i)
-                # 如果在雪球期限之内则返回None
+                # 如果在一年之内则返回None
                 if i > len(self.data) - 21 * self.duration:
                     obsv_list = None
     
@@ -225,8 +212,8 @@ class snowBalls:
                             res_dict['lasting'].append(None)
                             res_dict['profits'].append(None)
                             res_dict['annually'].append(None)
-                            res_dict['knockOUT_date'].append(None)
-                            res_dict['knockIN_date'].append(None)
+                            res_dict['kickOUT_date'].append(None)
+                            res_dict['kickIN_date'].append(None)
                             res_dict['ever_in'].append(None)
                     else:
                         res_dict['Date'].append(self.data['Date'][i])
@@ -240,14 +227,14 @@ class snowBalls:
                         res_dict['annually'].append(annually)
                         res_dict['ever_in'].append(res['ever_in'])
                         if res['FLAG'] == 1:
-                            res_dict['knockOUT_date'].append(res['date'])
-                            res_dict['knockIN_date'].append(np.nan)
+                            res_dict['kickOUT_date'].append(res['date'])
+                            res_dict['kickIN_date'].append(np.nan)
                         elif res['FLAG'] == 0:
-                            res_dict['knockOUT_date'].append(np.nan)
-                            res_dict['knockIN_date'].append(np.nan)
+                            res_dict['kickOUT_date'].append(np.nan)
+                            res_dict['kickIN_date'].append(np.nan)
                         elif res['FLAG'] == -1:
-                            res_dict['knockOUT_date'].append(np.nan)
-                            res_dict['knockIN_date'].append(res['date'])
+                            res_dict['kickOUT_date'].append(np.nan)
+                            res_dict['kickIN_date'].append(res['date'])
                     # print(i,res_dict['Date'][-1],res['date'],res['lasting'],self.freez)
     
                 else:
@@ -334,15 +321,12 @@ class snowBalls:
         stat_dict['次数'][4] = (sum(profit > 0 for profit in profits_kickOUT_everin))
         stat_dict['次数'][5] = (sum(profit > 0 for profit in profits_stable))
         stat_dict['次数'][7] = sum(stat_dict['次数'][:6])
-        try:
-            stat_dict['次数'][8] = (np.nanmin(LOST))
-            stat_dict['次数'][12] = (max(LOST))
-        except:
-            stat_dict['次数'][8] = np.nan
-            stat_dict['次数'][12] = np.nan
+
+        stat_dict['次数'][8] = (min(LOST))
         stat_dict['次数'][9] = (np.nanpercentile(LOST, 75))
         stat_dict['次数'][10] = (np.nanpercentile(LOST, 50))
         stat_dict['次数'][11] = (np.nanpercentile(LOST, 25))
+        stat_dict['次数'][12] = (max(LOST))
         stat_dict['次数'][13] = (np.nanmean(LOST))
         stat_dict['次数'][14] = (max(WIN))
         stat_dict['次数'][15] = (np.nanpercentile(WIN, 25))
@@ -372,8 +356,16 @@ class snowBalls:
         stat_dict['不加票息'][0] = np.nanmean([profit - coupon * self.duration for profit in profits_kickIN if profit > 0])
         stat_dict['不加票息'][1] = np.nanmean([profit - coupon * self.duration for profit in profits_kickIN if profit <= 0])
 
-        return pd.DataFrame(stat_dict)
+        print('结构胜率：', (stat_dict['次数'][0] + stat_dict['次数'][3] + stat_dict['次数'][4] + stat_dict['次数'][5]) / stat_dict['次数'][7])
 
+        print('平均正收益率:', (stat_dict['平均收益/亏损'][0] * stat_dict['次数'][0] + stat_dict['平均收益/亏损'][3] * stat_dict['次数'][3] + stat_dict['平均收益/亏损'][4] * stat_dict['次数'][4]) / (stat_dict['次数'][0]+stat_dict['次数'][3]+stat_dict['次数'][4]))
+
+        print('平均亏损率:', stat_dict['平均收益/亏损'][1])
+
+        print('平均持仓月份：', (stat_dict['情形'][6] * (stat_dict['次数'][3]+stat_dict['次数'][4]) +\
+              self.duration * (stat_dict['次数'][5] + stat_dict['次数'][0] + stat_dict['次数'][1] + stat_dict['次数'][2])) / stat_dict['次数'][7])
+
+        return pd.DataFrame(stat_dict)
 
 
 
@@ -394,12 +386,8 @@ class snowBalls:
             res = self.structure.CLA(obsv_list)
         if type == 'CLA_call':
             res = self.structure.CLA_call(obsv_list)
-        if type == 'CLA_boost':
-            res = self.structure.CLA_boost(obsv_list)
         if type == 'LBT':
             res = self.structure.LBT(obsv_list)
-        if type == 'CLA_call_boost':
-            res = self.structure.CLA_call_boost(obsv_list)
         return res
     
     
@@ -428,7 +416,7 @@ class snowBalls:
             PE_style = '滚动计算'
         else:
             PE_style = '静态设置'
-        parameters = ['雪球类型：{}'.format(self.type),'封闭期：{}个月'.format(self.freez+1),'雪球期限：{}个月'.format(self.duration),\
+        parameters = ['雪球类型：{}'.format(self.type),'封闭期：{}个月'.format(self.freez),'雪球期限：{}个月'.format(self.duration),\
                       '年化票息：{}'.format(self.coupon_yearly),'年化票息_触发救生舱条件后：{}'.format(self.coupon_yearly_LBT),\
                           '重置观察期：{}'.format(self.obsv_date_LBT),'敲出系数：{}'.format(self.KO),'救生艇敲出系数：{}'.format(self.KO_LBT),\
                               '敲入系数：{}'.format(self.KI),'PE计算方式：{}'.format(PE_style),'期权费：{}'.format(self.call_cost),\
@@ -460,9 +448,9 @@ class snowBalls:
         df_stat1 = self.stat(df1)
         self.showon = 1
         df_full1 = self.backTrader(1)
-        df_stat_merge = pd.concat([df_stat, df_stat1], axis=1)
-        df_stat_merge = pd.concat([df_stat_merge, parameters], axis=1)
-        df_full_merge = pd.concat([df_full, df_full1], axis=0)
+        df_stat_merge = pd.concat([df_stat,df_stat1],axis=1)
+        df_stat_merge = pd.concat([df_stat_merge,parameters],axis=1)
+        df_full_merge = pd.concat([df_full,df_full1],axis=0)
         
         
         df_full_merge.to_excel(writer, 'Sheet1', index=False)
