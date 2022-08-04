@@ -26,31 +26,32 @@ class snowBalls:
         self.KO = 1.0           # 敲出系数
         self.KO_LBT = 0.85      # 救生艇敲出系数
         self.KO_fix = self.KO           # 敲出系数
-        self.KI = 0.70          # 敲入系数
+        self.KI = 0.80          # 敲入系数
         self.PE_style = 0       # PE计算方式：0为静态，1为滚动
-        self.PE_static_thsh = 1000       # 静态PE阈值，数值为PE绝对数值
+        self.PE_static_thsh = 100       # 静态PE阈值，数值为PE绝对数值
         self.PE_trailing_thsh = 25        # 滚动PE阈值，数值为历史周期分位数
         self.PE_trailing_lenth = 252       # 滚动PE历史周期长度，数值单位：日
         self.coupon_yearly = 0.0635    #年利率
-        self.coupon_yearly_LBT = 0.0635    #年利率_触发救生舱条件后
+        self.coupon_yearly_LBT = 0.18    #年利率_触发救生舱条件后
         self.obsv_date_LBT = 6          #重置观察期
         self.coupon_monthly = self.coupon_yearly / 12   # 月票息
         self.N = 3 /100             # 大于年化 N% 概率阈值
         self.call_cost = 0.05     #期权费
-        self.begindate = '2007-01-15'
-        self.enddate = '2022-07-07'
+        self.begindate = '2004-12-31'
+        self.enddate = '2022-08-03'
         # 针对指数增强
         self.is_fix = 0 # 产品是否固定 0:不固定
         self.length_boost = 24 # 指增时长
         self.a_boost = 0.05 # 指增超额收益
         # self.recent_year = 0        # 1:回测最近一年；0：回测一年前
+        self.freez_ = self.freez
         
 
     def loadData(self, filename=''):
         
         begindate = datetime.strptime(self.begindate, "%Y-%m-%d")
         enddate = datetime.strptime(self.enddate, "%Y-%m-%d")
-        path = os.getcwd() + '\\' + '000905.xlsx' + filename
+        path = os.getcwd() + '\\' + '000852.xlsx' + filename
         self.data = pd.read_excel(path, 'Sheet1')
         self.data = self.data[(snowBall.data['Date'] >= begindate) & (snowBall.data['Date'] <= enddate)]
         self.data = self.data.reset_index()
@@ -151,6 +152,7 @@ class snowBalls:
             'profits' : [],
             'annually' : [],
             'ever_in' : [],
+            "+call" : [],
         }
         self.recent_year = recent_year
         if self.is_fix == 0:
@@ -160,7 +162,7 @@ class snowBalls:
             self.structure.i = self.i
             thsh = 0
             if self.recent_year:
-                if i > len(self.data) - 21 * self.freez:
+                if i >= len(self.data) - 21 * self.freez_:
                     self.freez = 0
                     self.structure.freez = 0
                     if self.data['pe_ttm'][i] >= self.get_PE_thsh(i):
@@ -182,6 +184,7 @@ class snowBalls:
                             res_dict['knockOUT_date'].append(None)
                             res_dict['knockIN_date'].append(None)
                             res_dict['ever_in'].append(None)
+                            res_dict['+call'].append(None)
                     else:
                         res_dict['Date'].append(self.data['Date'][i])
                         res_dict['close'].append(self.CLOSE)
@@ -193,6 +196,10 @@ class snowBalls:
                         annually = (1 + res['profit']) ** (252 / (self.data[self.data['Date'] == res['date']].index[0] - i)) - 1
                         res_dict['annually'].append(annually)
                         res_dict['ever_in'].append(res['ever_in'])
+                        try:
+                            res_dict['+call'].append(res['+call'])
+                        except:
+                            res_dict['+call'].append("")
                         if res['FLAG'] == 1:
                             res_dict['knockOUT_date'].append(res['date'])
                             res_dict['knockIN_date'].append(np.nan)
@@ -210,7 +217,7 @@ class snowBalls:
                 self.structure.CLOSE = self.CLOSE
                 obsv_list = self.obsv_date(i)
                 # 如果在雪球期限之内则返回None
-                if i > len(self.data) - 21 * self.duration:
+                if i >= len(self.data) - 21 * self.freez_:
                     obsv_list = None
     
                 if obsv_list:
@@ -228,6 +235,7 @@ class snowBalls:
                             res_dict['knockOUT_date'].append(None)
                             res_dict['knockIN_date'].append(None)
                             res_dict['ever_in'].append(None)
+                            res_dict['+call'].append(None)
                     else:
                         res_dict['Date'].append(self.data['Date'][i])
                         res_dict['close'].append(self.CLOSE)
@@ -239,6 +247,10 @@ class snowBalls:
                         annually = (1 + res['profit']) ** (12 / res['lasting']) - 1
                         res_dict['annually'].append(annually)
                         res_dict['ever_in'].append(res['ever_in'])
+                        try:
+                            res_dict['+call'].append(res['+call'])
+                        except:
+                            res_dict['+call'].append("")
                         if res['FLAG'] == 1:
                             res_dict['knockOUT_date'].append(res['date'])
                             res_dict['knockIN_date'].append(np.nan)
@@ -456,10 +468,14 @@ class snowBalls:
         self.showon = 1
         df_full = self.backTrader()
         self.showon = 0
+
+        print("done1")
         df1 = self.backTrader(1)
         df_stat1 = self.stat(df1)
         self.showon = 1
         df_full1 = self.backTrader(1)
+        print("done2")
+
         df_stat_merge = pd.concat([df_stat, df_stat1], axis=1)
         df_stat_merge = pd.concat([df_stat_merge, parameters], axis=1)
         df_full_merge = pd.concat([df_full, df_full1], axis=0)

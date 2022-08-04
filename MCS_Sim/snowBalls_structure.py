@@ -462,6 +462,7 @@ class Structure:
             'profit': None,
             'out_price': None,
             'ever_in': None,
+            "+call" : None,
         }
 
         # 敲出
@@ -476,6 +477,7 @@ class Structure:
                     # res['profit'] = (self.coupon_yearly+1) ** ((self.freez + obsv_list.index(obsv) + 1)/12) - 1
                     res['profit'] = self.coupon_monthly * (self.freez + obsv_list.index(obsv) + 1)
                     res['lasting'] = self.freez + obsv_list.index(obsv) + 1
+                    res['+call'] = ""
                     # 产品结束
                     return res
                 # 曾敲入
@@ -493,6 +495,7 @@ class Structure:
                                                  self.CLOSE * self.KI) - self.call_cost) / (1 + self.call_cost)
                     res['lasting'] = self.freez + obsv_list.index(obsv) + 1
                     res['ever_in'] = 1
+                    res['+call'] = 1
                     # 产品结束
                     return res
 
@@ -515,6 +518,7 @@ class Structure:
                                 1 + self.call_cost)
                     res['out_price'] = self.data['close'][last_date]
                     res['lasting'] = self.freez + len(obsv_list)
+                    res['+call'] = 1
                     # jmp 指增
                 # 末期稳定
                 else:
@@ -525,8 +529,18 @@ class Structure:
                                                  self.CLOSE * self.KI) - self.call_cost) / (1 + self.call_cost)
                     res['out_price'] = self.data['close'][last_date]
                     res['lasting'] = self.freez + len(obsv_list)
+                    res['+call'] = 1
                     if res['profit'] >= 0:
                         return res
+            else:
+                res['date'] = self.data['Date'][last_date]
+                res['FLAG'] = -1
+                res['profit'] = (0 + (self.data['close'][last_date] - self.CLOSE * self.KI) / (
+                            self.CLOSE * self.KI) - self.call_cost) / (1 + self.call_cost)
+                res['out_price'] = self.data['close'][last_date]
+                res['lasting'] = self.freez + len(obsv_list)
+                return res
+
         # 稳定
         else:
             res['date'] = self.data['Date'][last_date]
@@ -537,6 +551,7 @@ class Structure:
                 res['profit'] = self.duration * self.coupon_monthly
             res['out_price'] = self.data['close'][last_date]
             res['lasting'] = self.freez + len(obsv_list)
+            res['+call'] = ""
             return res
 
         # 指增
@@ -545,9 +560,9 @@ class Structure:
         if end_date > self.data.shape[0] - 1:
             end_date = self.data.shape[0] - 1
         res['date'] = self.data['Date'][end_date]
-        res['FLAG'] = -1
         # res['profit'] += (self.data['close'][end_date] - self.data['close'][date_in]) / (self.data['close'][date_in]) + self.a_boost
         res['profit'] += (1 + res['profit']) * ((self.data['close'][end_date] - self.data['close'][date_in]) / (self.data['close'][date_in]) + self.a_boost)
+        res['FLAG'] = -1
         res['out_price'] = self.data['close'][end_date]
         res['lasting'] = 48
         return res
